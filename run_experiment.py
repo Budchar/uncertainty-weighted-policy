@@ -55,16 +55,12 @@ FULL_CONFIG = {
     'endogeneity_levels': [0.1, 0.3, 0.5, 0.8],
     'sample_sizes': [1000, 3000, 10000],
     'heterogeneity_levels': [0.2, 0.5, 0.8],
-    'lambda_values': [0.0, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0],
+    'lambda_values': [0.0, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 7.0, 10.0],
     'n_repeats': 10,
     'n_bootstrap': 20,
     'estimator_type': 'dml',
     'synthesis_methods': [
-        ('max', None),                         
-        ('stat_only', None),      
-        ('weighted', (0.4, 0.3, 0.3)),              
-        ('weighted', (0.6, 0.2, 0.2)),          
-        ('weighted', (0.8, 0.1, 0.1)),          
+        ('interaction', None),    
     ],
 }
 
@@ -72,14 +68,12 @@ QUICK_CONFIG = {
     'endogeneity_levels': [0.1, 0.5],
     'sample_sizes': [1000, 3000],
     'heterogeneity_levels': [0.2, 0.8],
-    'lambda_values': [0.0, 0.5, 1.0],
+    'lambda_values': [0.0, 0.5, 1.0, 3.0, 5.0],
     'n_repeats': 3,
     'n_bootstrap': 10,
     'estimator_type': 'dml',
     'synthesis_methods': [
-        ('max', None),
-        ('stat_only', None),
-        ('weighted', (0.6, 0.2, 0.2)),
+        ('interaction', None),
     ],
 }
 
@@ -96,7 +90,7 @@ def run_single_scenario(
     n_bootstrap: int,
     estimator_type: str,
     seed: int,
-    synthesis_method: str = "max",
+    synthesis_method: str = "interaction",
     synthesis_weights: tuple = None,  
 ) -> dict:
     """단일 시나리오 (DGP 설정 1개 + 시드 1개) 실행

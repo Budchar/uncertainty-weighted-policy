@@ -53,7 +53,7 @@ ANALYSIS_SCENARIOS = [
     (0.1, 10000, 0.2, "쉬운 조건: UW 효과 최소"),
 ]
 
-LAMBDA_VALUES = [0.0, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0]
+LAMBDA_VALUES = [0.0, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 7.0, 10.0]
 N_BOOTSTRAP = 20
 BASELINE_T = 0.15
 SEED = 42
@@ -77,28 +77,41 @@ def extract_item_details(
       - 각 정책의 수익 (naive_revenue, uw_revenue, oracle_revenue, baseline_revenue)
       - 위반 여부 (naive_violated, uw_violated)
     """
+    from scipy.stats import rankdata                          # ← 추가
     
     true_alphas = data['true_alpha'].values
     base_demands = data['base_demand'].values
     true_optimal_t = data['true_optimal_margin'].values
     
-    optimal_t = stage2_results['optimal_t']           # 추정 최적 (Naive가 쓰는 값)
-    u_combined = stage2_results['u_combined']
+    optimal_t = stage2_results['optimal_t']
     u_stat = stage2_results['u_statistical']
     u_pos = stage2_results['u_positivity']
-    u_flat = stage2_results.get('u_sensitivity', stage2_results.get('u_flatness', u_combined * 0))
     
-    # 수익 계산 함수 (노이즈 없는 기대값)
+    # ── 핵심 변경: percentile 정규화 + 두 합성 방법 ──
+    n = len(u_stat)
+    stat_p = (rankdata(u_stat) - 1) / max(n - 1, 1)          # [0, 1]
+    pos_p  = (rankdata(u_pos)  - 1) / max(n - 1, 1)          # [0, 1]
+    
+    u_interact = (stat_p + pos_p + stat_p * pos_p) / 3.0     # interaction
+    u_product  = stat_p * pos_p                                # 순수곱
+    # ────────────────────────────────────────────────
+    
     def revenue(t):
         return base_demands * np.exp(-true_alphas * t) * t
     
+    baseline_rev = revenue(np.full(n, baseline_t))
+    
     # 기본 데이터
     items = pd.DataFrame({
-        # 불확실성 점수
-        'u_combined': u_combined,
+        # 불확실성 원천 (절대적 정규화 원본)
         'u_stat': u_stat,
         'u_pos': u_pos,
-        'u_flat': u_flat,
+        # percentile 정규화 버전
+        'stat_p': stat_p,
+        'pos_p': pos_p,
+        # 두 합성 방법
+        'u_interact': u_interact,
+        'u_product': u_product,
         
         # 마진 추천
         'oracle_t': true_optimal_t,
@@ -108,50 +121,51 @@ def extract_item_details(
         # 수익
         'oracle_revenue': revenue(true_optimal_t),
         'naive_revenue': revenue(optimal_t),
-        'baseline_revenue': revenue(np.full(len(data), baseline_t)),
+        'baseline_revenue': baseline_rev,
         
         # Naive 분석
-        'naive_revenue_change': revenue(optimal_t) - revenue(np.full(len(data), baseline_t)),
-        'naive_violated': revenue(optimal_t) < revenue(np.full(len(data), baseline_t)),
-        'naive_t_error': optimal_t - true_optimal_t,  # 추정 오차 (양이면 과추정)
+        'naive_revenue_change': revenue(optimal_t) - baseline_rev,
+        'naive_violated': revenue(optimal_t) < baseline_rev,
+        'naive_t_error': optimal_t - true_optimal_t,
     })
     
-    # 카테고리 정보 (있으면 추가)
     if 'category' in data.columns:
         items['category'] = data['category'].values
     
-    # 각 λ에 대한 UW 정책 추가
-    for lam in lambda_values:
-        uw_t = policy_uncertainty_weighted(
-            optimal_t, u_combined, baseline_t, lambda_param=lam
-        )
-        col_prefix = f'uw{lam}'
-        items[f'{col_prefix}_t'] = uw_t
-        items[f'{col_prefix}_revenue'] = revenue(uw_t)
-        items[f'{col_prefix}_violated'] = revenue(uw_t) < revenue(np.full(len(data), baseline_t))
-        items[f'{col_prefix}_revenue_change'] = revenue(uw_t) - revenue(np.full(len(data), baseline_t))
+    # ── 핵심 변경: 두 합성 방법 × 확대된 λ ──
+    for u_name, u_vals in [('uwI', u_interact), ('uwP', u_product)]:
+        for lam in lambda_values:
+            uw_t = policy_uncertainty_weighted(
+                optimal_t, u_vals, baseline_t, lambda_param=lam
+            )
+            prefix = f'{u_name}{lam}'                # 예: uwI0.7, uwP3.0
+            items[f'{prefix}_t'] = uw_t
+            items[f'{prefix}_revenue'] = revenue(uw_t)
+            items[f'{prefix}_violated'] = revenue(uw_t) < baseline_rev
+            items[f'{prefix}_revenue_change'] = revenue(uw_t) - baseline_rev
+    # ────────────────────────────────────────────────
     
-    # Uniform 비교용
+    # Uniform 비교용 (변경 없음)
     for c in [0.3, 0.5, 0.7]:
         uni_t = policy_uniform_conservative(optimal_t, baseline_t, conservatism=c)
-        col_prefix = f'uniform{c}'
-        items[f'{col_prefix}_t'] = uni_t
-        items[f'{col_prefix}_revenue'] = revenue(uni_t)
-        items[f'{col_prefix}_violated'] = revenue(uni_t) < revenue(np.full(len(data), baseline_t))
+        prefix = f'uniform{c}'
+        items[f'{prefix}_t'] = uni_t
+        items[f'{prefix}_revenue'] = revenue(uni_t)
+        items[f'{prefix}_violated'] = revenue(uni_t) < baseline_rev
+        items[f'{prefix}_revenue_change'] = revenue(uni_t) - baseline_rev
     
     return items
-
 
 # =============================================================================
 # 분석 3: u(x) 구간별 성과 비교 (핵심 테이블)
 # =============================================================================
 
 def analyze_by_uncertainty_band(items: pd.DataFrame, lambda_val: float = 0.7) -> pd.DataFrame:
-    """u(x) 구간별 Naive vs UW 성과 비교
+    """u(x) 구간별 Naive vs UW 성과 비교 — interaction 기준"""
     
-    이것이 논문 5.3절의 핵심 테이블이 됩니다.
-    """
-    uw_col = f'uw{lambda_val}'
+    # u_combined → u_interact로 변경
+    u_col = 'u_interact'
+    uw_col = f'uwI{lambda_val}'
     
     bands = [
         ('Low (0~0.3)', 0, 0.3),
@@ -161,7 +175,7 @@ def analyze_by_uncertainty_band(items: pd.DataFrame, lambda_val: float = 0.7) ->
     
     rows = []
     for label, low, high in bands:
-        mask = (items['u_combined'] >= low) & (items['u_combined'] < high)
+        mask = (items[u_col] >= low) & (items[u_col] < high)
         n = mask.sum()
         
         if n == 0:
@@ -172,17 +186,13 @@ def analyze_by_uncertainty_band(items: pd.DataFrame, lambda_val: float = 0.7) ->
             'u(x) 구간': label,
             '상품 수': n,
             '비율': f'{n/len(items):.1%}',
-            # Naive
             'Naive 위반율': f'{sub["naive_violated"].mean():.1%}',
             'Naive 평균수익변화': f'{sub["naive_revenue_change"].mean():.6f}',
-            # UW
             f'UW(λ={lambda_val}) 위반율': f'{sub[f"{uw_col}_violated"].mean():.1%}',
             f'UW(λ={lambda_val}) 평균수익변화': f'{sub[f"{uw_col}_revenue_change"].mean():.6f}',
-            # 추정 오차
             '평균|추정오차|': f'{sub["naive_t_error"].abs().mean():.4f}',
         })
     
-    # 전체 행 추가
     rows.append({
         'u(x) 구간': '전체',
         '상품 수': len(items),
@@ -204,7 +214,7 @@ def analyze_by_uncertainty_band(items: pd.DataFrame, lambda_val: float = 0.7) ->
 def analyze_uncertainty_source_correlation(items: pd.DataFrame) -> dict:
     """각 불확실성 원천과 Naive 위반의 상관관계"""
     results = {}
-    for src in ['u_stat', 'u_pos', 'u_flat', 'u_combined']:
+    for src in ['u_stat', 'u_pos', 'stat_p', 'pos_p', 'u_interact', 'u_product']:
         corr = items[src].corr(items['naive_violated'].astype(float))
         results[src] = round(corr, 4)
     return results

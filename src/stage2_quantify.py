@@ -16,7 +16,8 @@ Stage 2: Uncertainty Quantification
    - u_stat × u_pos: "흔들리면서 동시에 관찰도 부족한가?" (상호작용)
    
    합성: u(x) = (u_stat + u_pos + u_stat·u_pos) / 3
-   정규화: 절대적 정규화 (물리적 의미 기반, 시나리오 간 비교 가능)
+   정규화: percentile 정규화 → interaction 합성
+       percentile로 스케일 통일 후 상호작용항으로 복합 위험 포착
 
 설계 근거:
    두 지표는 서로 다른 축의 epistemic uncertainty를 측정한다.
@@ -41,6 +42,7 @@ from typing import Optional, Tuple, Dict, List
 from dataclasses import dataclass, field
 
 from sklearn.model_selection import train_test_split
+from scipy.stats import rankdata
 
 import sys
 _project_root = str(Path(__file__).resolve().parent.parent)
@@ -306,22 +308,20 @@ class UncertaintySynthesizer:
         self,
         u_statistical: np.ndarray,
         u_positivity: np.ndarray,
+        method="interaction"
     ) -> np.ndarray:
-        """두 epistemic uncertainty + 상호작용항으로 합성 → u(x) ∈ [0, 1]
+        # percentile 정규화 (스케일 통일)
+        stat_p = (rankdata(u_statistical) - 1) / max(len(u_statistical) - 1, 1)
+        pos_p  = (rankdata(u_positivity)  - 1) / max(len(u_positivity) - 1, 1)
         
-        u(x) = (u_stat + u_pos + u_stat·u_pos) / 3
+        if method == "interaction":
+            u = (stat_p + pos_p + stat_p * pos_p) / 3.0
+        elif method == "product":
+            u = stat_p * pos_p
+        else:
+            u = (stat_p + pos_p) / 2.0
         
-        상호작용항의 역할:
-        - u_stat=0.8, u_pos=0.8 → interaction=0.64, u=0.75 (강한 보수성)
-        - u_stat=0.8, u_pos=0.0 → interaction=0.00, u=0.27 (한쪽만 높음)
-        - u_stat=0.0, u_pos=0.8 → interaction=0.00, u=0.27 (한쪽만 높음)
-        
-        두 원천이 동시에 높을 때만 강하게 보수적으로 작동한다.
-        """
-        interaction = u_statistical * u_positivity
-        u = (u_statistical + u_positivity + interaction) / 3.0
-        u = np.clip(u, 0, 1)
-        return u
+        return np.clip(u, 0, 1)
 
 
 # =============================================================================
@@ -408,9 +408,12 @@ def run_stage2(
     u_pos = synthesizer.compute_positivity_uncertainty(gps_est, X, optimal_t)
     
     # --- Step 3: 합성 (두 원천 + 상호작용) ---
-    u_combined = synthesizer.synthesize(u_stat, u_pos)
+    u_combined = synthesizer.synthesize(u_stat, u_pos, method=synthesis_method)
     interaction = u_stat * u_pos
-    
+    n = len(u_stat)
+    stat_p = (rankdata(u_stat) - 1) / max(n - 1, 1)
+    pos_p  = (rankdata(u_pos)  - 1) / max(n - 1, 1)
+
     # --- 결과 정리 ---
     results = {
         # 불확실성 점수
@@ -418,6 +421,8 @@ def run_stage2(
         'u_statistical': u_stat,
         'u_positivity': u_pos,
         'u_interaction': interaction,
+        'stat_p': stat_p,          
+        'pos_p': pos_p,     
         
         # 추정 최적 treatment
         'optimal_t': optimal_t,
@@ -438,6 +443,8 @@ def run_stage2(
             'u_stat_mean': float(u_stat.mean()),
             'u_pos_mean': float(u_pos.mean()),
             'u_interaction_mean': float(interaction.mean()),
+            'u_stat_p_mean': float(stat_p.mean()),
+            'u_pos_p_mean': float(pos_p.mean()),
             'high_uncertainty_ratio': float(np.mean(u_combined > 0.7)),
             'low_uncertainty_ratio': float(np.mean(u_combined < 0.3)),
         },
@@ -462,7 +469,9 @@ def print_stage2_results(results: Dict):
     print(f"   통계적 (Bootstrap std):  {diag['u_stat_mean']:.3f}")
     print(f"   Positivity (GPS):        {diag['u_pos_mean']:.3f}")
     print(f"   상호작용 (stat × pos):   {diag['u_interaction_mean']:.3f}")
-    
+    print(f"   stat (percentile):       {diag['u_stat_p_mean']:.3f}")
+    print(f"   pos (percentile):        {diag['u_pos_p_mean']:.3f}")
+
     print(f"\n🔗 종합 불확실성 u(x) = (stat + pos + stat·pos) / 3")
     print(f"   평균: {diag['u_combined_mean']:.3f}")
     print(f"   표준편차: {diag['u_combined_std']:.3f}")
