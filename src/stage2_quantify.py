@@ -335,6 +335,7 @@ def run_stage2(
     t_grid: np.ndarray,
     alpha: float = 0.1,
     synthesis_method: str = "interaction",
+    synthesis_weights=None
 ) -> Dict:
     """Stage 2 전체 실행
     
