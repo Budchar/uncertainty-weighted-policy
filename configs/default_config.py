@@ -4,7 +4,7 @@
 확정된 DGP 파라미터와 실험 설정을 모아둔 곳.
 
 핵심 설계 원칙:
-- M5의 현실적 covariate 구조 + isoelastic demand 기반 semi-synthetic DGP
+- M5의 현실적 covariate 구조 + 지수감소 수요 모델 기반 semi-synthetic DGP
 - 내생성: 가격/판매에 비슷한 스케일로 영향 (이전 실험에서 발견된 불균형 수정)
 - dose-response: 역U자형(단봉, unimodal) — 경제학적 근거 있음
 """
@@ -40,8 +40,8 @@ class DGPConfig:
     """Semi-synthetic Data Generating Process 설정
     
     경제학적 근거:
-    - Isoelastic demand: Q(p) = a · p^(-ε)  (Pindyck & Rubinfeld, Microeconomics)
-    - Revenue = Q × margin → 역U자형 (단봉, unimodal)
+    - 지수감소 수요: Q(m) = a · exp(-α · m), Revenue = a · m · exp(-α · m)
+    - 최적 마진 m* = 1/α, Revenue curve는 역U자형 (단봉, unimodal)
     - 이 구조에서 interpolation이 안전한 이유: 두 정책 사이의 어떤 값도
       양 끝보다 나쁠 가능성이 낮음
     """

@@ -72,10 +72,9 @@ def extract_item_details(
     """상품별 상세 데이터를 DataFrame으로 추출
     
     각 상품(행)에 대해:
-      - 불확실성 점수 (u_combined, u_stat, u_pos, u_flat)
-      - 각 정책의 추천 마진 (naive_t, uw_t, oracle_t, baseline_t)
-      - 각 정책의 수익 (naive_revenue, uw_revenue, oracle_revenue, baseline_revenue)
-      - 위반 여부 (naive_violated, uw_violated)
+      - 불확실성 점수 (u_stat, u_pos, stat_p, pos_p, u_interact, u_product)
+      - 각 정책의 추천 마진 (naive_t, uwI/uwP별 λ값_t, oracle_t, baseline_t)
+      - 각 정책의 수익 및 위반 여부
     """
     from scipy.stats import rankdata                          # ← 추가
     

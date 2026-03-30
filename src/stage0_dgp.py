@@ -8,14 +8,15 @@ Stage 0: Semi-Synthetic Data Generating Process (DGP)
 설계 원칙:
 1. Covariates (X): M5에서 추출 — 상품/매장/시간/이벤트의 자연스러운 상관 구조 유지
 2. Treatment (T): 마진율 — GPS(Generalized Propensity Score) 기반 할당
-3. Outcome (Y): 수익 = 판매량 × 마진 — isoelastic demand function
+3. Outcome (Y): 수익 = 판매량 × 마진 — 지수감소 수요 모델(exponential decay demand)
 4. Confounding (U): 미관측 수요 신호 — 가격/판매 양쪽에 비슷한 스케일로 영향
 
-경제학적 근거:
-- Isoelastic demand: Q(p) = a · p^(-ε)
-  (Pindyck & Rubinfeld, Microeconomics; Marshall, 1890)
-- Revenue = Q × margin → 역U자형 (단봉, unimodal)
-- 탄력성 ε > 1이면 마진 증가 시 판매 감소가 수익 증가를 상쇄하는 지점 존재
+수요 모델:
+- 지수감소 수요: Q(m) = a · exp(-α · m)
+- Revenue = Q × margin = a · m · exp(-α · m) → 역U자형 (단봉, unimodal)
+- 최적 마진: m* = 1/α
+- Isoelastic 모델(Q=a·p^(-ε))은 최적점이 마진 범위 밖에 위치하여 채택하지 않음
+  (상세 근거는 SemiSyntheticDGP 클래스 docstring 참조)
 """
 
 import numpy as np
