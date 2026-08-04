@@ -55,7 +55,9 @@ FULL_CONFIG = {
     'endogeneity_levels': [0.1, 0.3, 0.5, 0.8],
     'sample_sizes': [1000, 3000, 10000],
     'heterogeneity_levels': [0.2, 0.5, 0.8],
-    'lambda_values': [0.0, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 7.0, 10.0],
+    'lambda_values': [round(0.1 * i, 2) for i in range(0, 51)],
+    'uniform_values': [round(0.05 * i, 2) for i in range(1, 20)],
+    'threshold_values': [round(0.05 * i, 2) for i in range(1, 20)],
     'n_repeats': 10,
     'n_bootstrap': 20,
     'estimator_type': 'dml',
@@ -69,6 +71,8 @@ QUICK_CONFIG = {
     'sample_sizes': [1000, 3000],
     'heterogeneity_levels': [0.2, 0.8],
     'lambda_values': [0.0, 0.5, 1.0, 3.0, 5.0],
+    'uniform_values': [0.3, 0.5, 0.7],
+    'threshold_values': [0.3, 0.5, 0.7],
     'n_repeats': 3,
     'n_bootstrap': 10,
     'estimator_type': 'dml',
@@ -87,6 +91,8 @@ def run_single_scenario(
     n_samples: int,
     heterogeneity: float,
     lambda_values: list,
+    uniform_values: list,
+    threshold_values: list,
     n_bootstrap: int,
     estimator_type: str,
     seed: int,
@@ -129,8 +135,10 @@ def run_single_scenario(
         data, stage2_results,
         baseline_t=0.15,
         lambda_values=lambda_values,
+        uniform_values=uniform_values,
+        threshold_values=threshold_values
     )
-    
+
     # 결과 정리
     scenario_results = {
         'stage1_eval': s1_eval,
@@ -267,6 +275,8 @@ def run_experiment(config: dict, output_dir: str = "./results", resume: bool = F
                         data, stage2_results,
                         baseline_t=0.15,
                         lambda_values=config['lambda_values'],
+                        uniform_values=config['uniform_values'],
+                        threshold_values=config['threshold_values'],
                     )
 
                     elapsed = time.time() - t0
@@ -551,6 +561,8 @@ def run_single_axis(axis: str, config: dict, output_dir: str = "./results"):
                     n_bootstrap=config['n_bootstrap'],
                     estimator_type=config['estimator_type'],
                     seed=seed,
+                    uniform_values=config['uniform_values'],
+                    threshold_values=config['threshold_values'],
                 )
                 result['scenario'] = {
                     'endogeneity': params['endogeneity'],

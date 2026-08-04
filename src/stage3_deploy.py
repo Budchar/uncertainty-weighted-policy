@@ -145,6 +145,8 @@ def run_stage3(
     stage2_results: Dict,
     baseline_t: float = 0.15,
     lambda_values: List[float] = None,
+    uniform_values: List[float] = None,
+    threshold_values: List[float] = None
 ) -> Dict:
     """Stage 3 전체 실행 — 5개 정책 비교
     
@@ -157,9 +159,10 @@ def run_stage3(
     Returns:
         all_results: 정책별 평가 결과
     """
-    if lambda_values is None:
-        lambda_values = [0.0, 0.3, 0.5, 0.7, 1.0]
-    
+    lambda_values = lambda_values or [0.0, 0.3, 0.5, 0.7, 1.0]
+    uniform_values = uniform_values or [0.3, 0.5, 0.7]
+    threshold_values = threshold_values or [0.3, 0.5, 0.7]
+
     optimal_t = stage2_results['optimal_t']
     uncertainty = stage2_results['u_combined']
     true_optimal_t = data['true_optimal_margin'].values
@@ -183,13 +186,13 @@ def run_stage3(
     all_results['naive_optimal'] = eval_naive
     
     # 4. Uniform conservative
-    for c in [0.3, 0.5, 0.7]:
+    for c in uniform_values:
         t = policy_uniform_conservative(optimal_t, baseline_t, conservatism=c)
         key = f"uniform_c{c}"
         all_results[key] = evaluate_policy(data, t, key)
     
     # 5. Threshold based
-    for th in [0.3, 0.5, 0.7]:
+    for th in threshold_values:
         t = policy_threshold_based(optimal_t, uncertainty, baseline_t, threshold=th)
         key = f"threshold_{th}"
         all_results[key] = evaluate_policy(data, t, key)
