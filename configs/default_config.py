@@ -1,7 +1,10 @@
 """
-실험 설정 파일
+DGP 설정 파일
 =============
-확정된 DGP 파라미터와 실험 설정을 모아둔 곳.
+M5 로더와 반합성 DGP의 확정된 파라미터를 모아둔 곳.
+
+실험 시나리오 그리드(교란 강도 × 표본 크기 × 이질성, λ/c/τ sweep)는
+run_experiment.py의 FULL_CONFIG / QUICK_CONFIG에서 정의한다.
 
 핵심 설계 원칙:
 - M5의 현실적 covariate 구조 + 지수감소 수요 모델 기반 semi-synthetic DGP
@@ -96,59 +99,3 @@ class DGPConfig:
     
     # 랜덤 시드
     random_seed: int = 42
-
-
-@dataclass
-class ExperimentConfig:
-    """실험 시나리오 설정
-    
-    3축 실험:
-    - confounding_strengths: 교란 강도
-    - sample_sizes: 데이터 크기
-    - heterogeneity_levels: 효과 이질성 수준
-    """
-    
-    # 시나리오 축
-    confounding_strengths: List[float] = field(
-        default_factory=lambda: [0.0, 0.1, 0.3, 0.5, 0.8]
-    )
-    sample_sizes: List[int] = field(
-        default_factory=lambda: [1000, 5000, 10000, 20000]
-    )
-    heterogeneity_levels: List[float] = field(
-        default_factory=lambda: [0.0, 0.3, 0.5, 0.8]
-    )
-    
-    # 비교 대상 방법
-    methods: List[str] = field(default_factory=lambda: [
-        "naive_optimal",          # 추정 최적 처리를 보정 없이 적용
-        "uniform_conservative",   # 전체에 일률적 보수성 적용
-        "threshold_based",        # 불확실성 임계값 넘으면 baseline 유지
-        "uncertainty_weighted",   # 우리 방법: π_safe = (1-λu)π* + λu·π₀
-        "oracle",                 # 정답을 아는 최적 정책 (상한선)
-    ])
-    
-    # 안전성 파라미터
-    lambda_values: List[float] = field(
-        default_factory=lambda: [0.5, 1.0, 1.5, 2.0]  # λ: 보수성 강도
-    )
-    
-    # 반복 실험 횟수 (신뢰구간 계산용)
-    n_repeats: int = 10
-    
-    # 평가 지표
-    metrics: List[str] = field(default_factory=lambda: [
-        "regret",                 # Oracle 대비 손실
-        "safety_violation_rate",  # baseline보다 나빠지는 비율
-        "mean_revenue",           # 평균 수익
-        "revenue_at_risk",        # 하위 5% 수익 (CVaR 유사)
-    ])
-
-
-# 편의를 위한 기본 설정 생성 함수
-def get_default_config():
-    return {
-        "m5": M5Config(),
-        "dgp": DGPConfig(),
-        "experiment": ExperimentConfig(),
-    }

@@ -16,12 +16,12 @@ Stage 1: Dose-Response Curve Estimation
 
 3. Bootstrap Confidence Intervals
    - 개인별 dose-response의 불확실성 정량화
-   - Stage 2 (Conformal Prediction)의 입력이 됨
+   - B회 반복 추정으로 개체별 최적 처리의 표준편차 σ_B(x)를 산출하며,
+     Stage 2의 통계적 불안정성 u_stat 입력이 됨
 
 파이프라인상의 위치:
-- 표준 인과추정 파이프라인의 추정 단계에 해당
-- 대안 추정기로 Regression, S-learner, AIPTW 등이 있음
-- 우리는 GPS regression + DML을 사용 (더 표준적)
+- 안전 레이어(Stage 3)와 독립적인 표준 추정 단계에 해당한다.
+- 논문 실험은 5-fold cross-fitting + XGBoost nuisance model 기반 DML을 사용한다.
 """
 
 import numpy as np

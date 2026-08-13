@@ -1,0 +1,18 @@
+# 핵심 의존성 (필수)
+# 검증 환경: Python 3.12.2
+numpy>=1.26
+pandas>=2.0
+scipy>=1.11
+scikit-learn>=1.3
+
+# 선택 의존성
+# xgboost — Stage 1 추정 5~10배 가속 (없으면 sklearn GradientBoostingRegressor로 fallback)
+xgboost>=2.0
+
+# kaggle — M5 원본 데이터 다운로드용 (data_loader.py).
+#          M5 없이 synthetic covariates로 실행할 경우 불필요
+kaggle>=1.6
+
+# 실제 검증에 사용한 정확한 버전 조합:
+#   numpy==2.4.2  pandas==3.0.0  scipy==1.17.0
+#   scikit-learn==1.8.0  xgboost==3.2.0  kaggle==1.8.4
