@@ -33,8 +33,8 @@ AI가 추천하는 최적 가격(또는 마진)을 실제로 적용하려면, **
 ## 설치
 
 ```bash
-git clone <repo-url>
-cd safe_policy
+git clone https://github.com/Budchar/uncertainty-weighted-policy.git
+cd uncertainty-weighted-policy
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
@@ -192,10 +192,6 @@ M5 Walmart 판매 데이터의 현실적 covariate 구조 위에 경제학 기�
 ```
 u(x) = (stat_p + pos_p + stat_p · pos_p) / 3
 ```
-
-> 참고: Conformal Prediction 관련 코드도 포함되어 있으나, `u(x)` 합성에는
-> 사용하지 않습니다. 예측 구간의 커버리지를 확인하는 **진단 용도**이며
-> 논문 실험 결과에는 관여하지 않습니다.
 
 ### Stage 3: Safe Policy Deployment
 
