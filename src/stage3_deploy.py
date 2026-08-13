@@ -109,15 +109,21 @@ def evaluate_policy(
     data: pd.DataFrame,
     policy_treatments: np.ndarray,
     policy_name: str,
+    baseline_t: float = 0.15,
 ) -> Dict:
-    """정책 평가 — ground truth 기반 (노이즈 없는 기대값으로 비교)"""
+    """정책 평가 — ground truth 기반 (노이즈 없는 기대값으로 비교)
+
+    Args:
+        baseline_t: 위반율·개선율의 기준이 되는 현행 정책 π₀의 마진율.
+                    run_stage3의 baseline_t와 반드시 동일해야 한다.
+    """
     true_alphas = data['true_alpha'].values
     base_demands = data['base_demand'].values
     oracle_revenue = data['true_optimal_revenue'].values
-    
+
     # 모든 정책을 동일 기준(노이즈 없는 기대값)으로 비교
     policy_revenue = base_demands * np.exp(-true_alphas * policy_treatments) * policy_treatments
-    baseline_revenue = base_demands * np.exp(-true_alphas * 0.15) * 0.15
+    baseline_revenue = base_demands * np.exp(-true_alphas * baseline_t) * baseline_t
     
     regret = oracle_revenue - policy_revenue
     safety_violation = policy_revenue < baseline_revenue
@@ -172,36 +178,38 @@ def run_stage3(
     all_results = {}
     
     # 1. Oracle
-    eval_oracle = evaluate_policy(data, true_optimal_t, "oracle")
+    eval_oracle = evaluate_policy(data, true_optimal_t, "oracle", baseline_t)
     all_results['oracle'] = eval_oracle
-    
+
     # 2. Baseline (고정 15%)
     eval_baseline = evaluate_policy(
-        data, np.full(len(data), baseline_t), "baseline"
+        data, np.full(len(data), baseline_t), "baseline", baseline_t
     )
     all_results['baseline'] = eval_baseline
-    
+
     # 3. Naive optimal
-    eval_naive = evaluate_policy(data, policy_naive_optimal(optimal_t), "naive_optimal")
+    eval_naive = evaluate_policy(
+        data, policy_naive_optimal(optimal_t), "naive_optimal", baseline_t
+    )
     all_results['naive_optimal'] = eval_naive
-    
+
     # 4. Uniform conservative
     for c in uniform_values:
         t = policy_uniform_conservative(optimal_t, baseline_t, conservatism=c)
         key = f"uniform_c{c}"
-        all_results[key] = evaluate_policy(data, t, key)
-    
+        all_results[key] = evaluate_policy(data, t, key, baseline_t)
+
     # 5. Threshold based
     for th in threshold_values:
         t = policy_threshold_based(optimal_t, uncertainty, baseline_t, threshold=th)
         key = f"threshold_{th}"
-        all_results[key] = evaluate_policy(data, t, key)
-    
+        all_results[key] = evaluate_policy(data, t, key, baseline_t)
+
     # 6. Uncertainty weighted (핵심)
     for lam in lambda_values:
         t = policy_uncertainty_weighted(optimal_t, uncertainty, baseline_t, lambda_param=lam)
         key = f"uw_lambda{lam}"
-        all_results[key] = evaluate_policy(data, t, key)
+        all_results[key] = evaluate_policy(data, t, key, baseline_t)
     
     return all_results
 
@@ -281,7 +289,7 @@ if __name__ == "__main__":
     t_grid = np.linspace(0.05, 0.35, 31)
     stage2_results = run_stage2(
         data, feature_cols, bootstrap_dml, t_grid,
-        alpha=0.1, synthesis_method="max",
+        alpha=0.1, synthesis_method="interaction",   # 논문 식(1)과 동일
     )
     print_stage2_results(stage2_results)
     
