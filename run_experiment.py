@@ -183,8 +183,13 @@ def run_experiment(config: dict, output_dir: str = "./results", resume: bool = F
     output_path.mkdir(exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_file = output_path / f"experiment_{timestamp}.json"
-    checkpoint_file = output_path / "checkpoint.json"
+    # 추정기 계열을 파일명에 넣는다. 같은 3축 설정을 추정기만 바꿔 돌릴 때
+    # 타임스탬프만으로는 구분되지 않기 때문이다.
+    est = config.get('estimator_type', 'dml')
+    results_file = output_path / f"experiment_{est}_{timestamp}.json"
+    # 체크포인트도 추정기별로 분리한다. 고정 이름을 쓰면 다른 추정기 실행이
+    # 서로의 resume 상태를 덮어쓴다.
+    checkpoint_file = output_path / f"checkpoint_{est}.json"
     
     # Resume: 기존 결과 로드
     completed = {}
@@ -336,7 +341,7 @@ def run_experiment(config: dict, output_dir: str = "./results", resume: bool = F
     
     # 요약 테이블 생성
     summary_df = create_summary_table(all_results)
-    summary_file = output_path / f"summary_{timestamp}.csv"
+    summary_file = output_path / f"summary_{est}_{timestamp}.csv"
     summary_df.to_csv(summary_file, index=False)
     print(f"  요약 테이블: {summary_file}")
     
@@ -596,6 +601,9 @@ if __name__ == "__main__":
                         help='중단된 실험 이어서 실행')
     parser.add_argument('--output', type=str, default='./results',
                         help='결과 저장 디렉토리')
+    parser.add_argument('--estimator', type=str, default=None,
+                        choices=['dml', 'odml', 'gps'],
+                        help='추정기 계열 (odml = 직교화를 실제로 적용하는 DML)')
     parser.add_argument('--repeats', type=int, default=None,
                         help='반복 횟수 오버라이드')
     
@@ -606,7 +614,10 @@ if __name__ == "__main__":
     
     if args.repeats is not None:
         config['n_repeats'] = args.repeats
-    
+
+    if args.estimator is not None:
+        config['estimator_type'] = args.estimator
+
     # 실행
     if args.axis:
         results, summary = run_single_axis(args.axis, config, args.output)

@@ -6,18 +6,19 @@ Stage 3: Safe Policy Deployment
       안전한 정책을 구성하고 배포한다.
 
 핵심 공식:
-    π_safe(x) = (1 - λ·u(x)) · π*(x) + λ·u(x) · π₀(x)
-    
-    - π*(x): AI 추정 최적 정책 (Stage 1)
+    π_safe(x) = (1 - w(x)) · π̂*(x) + w(x) · π₀(x),   w(x) = min(λ·u(x), 1)
+
+    - π̂*(x): 추정 최적 정책 (Stage 1)
     - π₀(x): Baseline 정책 (현재 운영 중인 고정 마진)
-    - u(x): 종합 불확실성 (Stage 2, 0~1)
-    - λ: 전역 보수성 파라미터 (0~1)
+    - u(x): 종합 불안정성 (Stage 2, 0~1)
+    - λ: 전역 보수성 파라미터 (0 이상. 논문 실험은 0.0~5.0을 0.1 간격 sweep)
+    - w(x): 보간 가중치. λ·u(x)는 1을 넘을 수 있고 그대로 쓰면 baseline을
+            지나쳐 외삽하므로 min(·, 1)로 클리핑한다.
 
 동작 원리:
-    - u(x)=0 (확실): π_safe = π* (AI 추천 그대로)
-    - u(x)=1 (불확실): π_safe = (1-λ)π* + λπ₀
-    - λ=1: 최대 보수성 (불확실하면 baseline 유지)
-    - λ=0: 보수성 없음 (항상 AI 추천)
+    - u(x)=0 (안정): π_safe = π̂* (추정 최적 그대로)
+    - w(x)=1 (λ·u(x) ≥ 1): π_safe = π₀ (baseline으로 완전 회귀)
+    - λ=0: 보수성 없음 (항상 π̂*) → naive_optimal과 동일
 
 비교 대상 (baselines):
     1. naive_optimal: π* 그대로 적용 (보수성 없음)
@@ -89,12 +90,13 @@ def policy_uncertainty_weighted(
     **kwargs,
 ) -> np.ndarray:
     """핵심 제안: Uncertainty-Weighted Policy Interpolation
-    
-    π_safe(x) = (1 - λ·u(x)) · π*(x) + λ·u(x) · π₀
-    
-    - λ·u(x)가 보간 가중치
-    - u(x)=0: π* 그대로
-    - u(x)=1, λ=1: π₀로 완전 회귀
+
+    π_safe(x) = (1 - w(x)) · π̂*(x) + w(x) · π₀,   w(x) = min(λ·u(x), 1)
+
+    - w(x)가 보간 가중치. λ·u(x)를 [0, 1]로 클리핑한 값이다.
+      (클리핑이 없으면 λ·u(x) > 1인 개체가 baseline을 지나쳐 외삽된다)
+    - u(x)=0: π̂* 그대로
+    - λ·u(x) ≥ 1: π₀로 완전 회귀
     """
     weight = lambda_param * uncertainty
     weight = np.clip(weight, 0, 1)

@@ -139,7 +139,7 @@ if __name__ == "__main__":
     parser.add_argument('--endogeneity', type=float, default=0.3)
     parser.add_argument('--heterogeneity', type=float, default=0.5)
     parser.add_argument('--n-bootstrap', type=int, default=20)
-    parser.add_argument('--estimator', choices=['gps', 'dml'], default='dml')
+    parser.add_argument('--estimator', choices=['gps', 'dml', 'odml'], default='dml')
     parser.add_argument('--from-stage', type=int, default=99,
                         help='이 stage부터 재실행 (0~3)')
     parser.add_argument('--force', action='store_true',

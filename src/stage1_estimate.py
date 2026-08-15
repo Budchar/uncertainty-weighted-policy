@@ -191,10 +191,25 @@ class GPSRegressionEstimator(DoseResponseEstimator):
 
 
 class DMLDoseResponseEstimator(DoseResponseEstimator):
-    """Double Machine Learning 기반 dose-response 추정
-    
-    Chernozhukov et al. (2018) 스타일 — continuous treatment 적용:
-    Cross-fitting으로 nuisance 추정 후, (X, T) → Y 모델 학습
+    """Cross-fitting 기반 dose-response 추정 (비직교)
+
+    실제 동작 — 이름의 "DML"보다 좁은 범위임에 주의:
+        1. K-fold cross-fitting으로 nuisance 잔차를 계산한다.
+             T_res = T − Ê[T|X],  Y_res = Y − Ê[Y|X]
+        2. 그러나 최종 outcome 모델은 원본 (X, T) → Y 로 학습한다.
+           위 잔차는 get_residual_diagnostics()의 진단값으로만 쓰이고
+           predict() / predict_individual()에는 관여하지 않는다.
+
+        따라서 μ̂(x,t)는 직교화(잔차-on-잔차 회귀)가 적용되지 않은 outcome
+        regression(S-learner)이다. Chernozhukov et al.(2018)의 Neyman
+        직교 모먼트 조건을 만족하는 추정량이 아니다.
+
+    직교화를 실제로 적용하는 버전은 OrthogonalDMLEstimator를 참조.
+    (--estimator odml)
+
+    이 클래스를 수정하지 말 것:
+        results/summary_20260416_200920.csv의 360런은 이 구현으로 산출된
+        논문 원본 수치다. 동작을 바꾸면 논문의 모든 표가 재현되지 않는다.
     """
     
     def __init__(self, n_folds=5, n_estimators=100, max_depth=4):
@@ -273,8 +288,165 @@ class DMLDoseResponseEstimator(DoseResponseEstimator):
             'T_Y_residual_corr': float(np.corrcoef(
                 self._T_residuals, self._Y_residuals
             )[0, 1]),
+            'orthogonalized': False,
         }
 
+
+class OrthogonalDMLEstimator(DoseResponseEstimator):
+    """직교화를 실제로 적용하는 DML dose-response 추정기
+
+    DMLDoseResponseEstimator와의 차이:
+        기존 DML 추정기는 cross-fitting으로 잔차를 계산하지만 최종 outcome
+        모델을 원본 (X, T) → Y 로 학습하므로, 직교화가 추정에 반영되지 않는다.
+        이 추정기는 처리 변수를 **잔차화된 기저(basis)로만** 최종 모델에
+        투입하여 X를 통한 교란 경로를 실제로 부분화(partial out)한다.
+
+    모형:
+        Y = Σ_k θ_k(X)·φ_k(T) + g(X) + ε
+        여기서 φ = (T, T², …, T^d) 는 처리 기저이다. 연속 처리에서 단일
+        선형항만 쓰면 dose-response가 단조가 되어 내부 최적점이 사라지므로,
+        역U자 곡선을 표현할 수 있도록 d ≥ 2 를 기본값으로 둔다.
+
+    추정 절차 (Chernozhukov et al. 2018의 cross-fitting + R-learner 구성):
+        1. K-fold cross-fitting으로 nuisance 적합
+             ĝ(X)   = E[Y | X]
+             ĥ_k(X) = E[φ_k(T) | X]
+        2. 잔차화
+             Ỹ    = Y − ĝ(X)
+             φ̃_k  = φ_k(T) − ĥ_k(X)
+        3. 최종 모델을 잔차 위에서 학습
+             f̂ :  (X, φ̃_1, …, φ̃_d)  →  Ỹ
+           처리 변수는 φ̃ 를 통해서만 들어가므로, X로 설명되는 처리 변동은
+           최종 모델이 볼 수 없다.
+        4. 예측
+             μ̂(x, t) = ĝ(x) + f̂(x, φ_1(t) − ĥ_1(x), …, φ_d(t) − ĥ_d(x))
+
+        잔차 계산에는 cross-fitting 값을 쓰고(과적합 방지), 임의의 t에서
+        예측하기 위한 ĝ·ĥ_k 는 전체 표본으로 다시 적합한다. 이는 DML의
+        표준 관행이다.
+
+    최종 모델이 X를 함께 받으므로 θ_k(X)가 개체별로 달라질 수 있고,
+    따라서 argmax_t μ̂(x,t)의 이질성이 보존된다.
+    """
+
+    def __init__(self, n_folds=5, n_estimators=100, max_depth=4, basis_degree=2):
+        self.n_folds = n_folds
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.basis_degree = basis_degree
+        self.final_model = None
+        self.g_model = None
+        self.h_models = []
+        self.scaler_X = StandardScaler()
+        self._Y_residuals = None
+        self._T_residuals = None
+        self._Phi_residuals = None
+        self._is_fitted = False
+
+    def _basis(self, T: np.ndarray) -> np.ndarray:
+        """처리 기저 φ(T) = (T, T², …, T^d) — (n, d)"""
+        return np.column_stack([T ** k for k in range(1, self.basis_degree + 1)])
+
+    def _make(self, scale=1):
+        return make_regressor(
+            n_estimators=self.n_estimators * scale,
+            max_depth=self.max_depth + (scale - 1),
+            random_state=42,
+        )
+
+    def fit(self, X: np.ndarray, T: np.ndarray, Y: np.ndarray) -> 'OrthogonalDMLEstimator':
+        n = len(Y)
+        d = self.basis_degree
+        X_scaled = self.scaler_X.fit_transform(X)
+        Phi = self._basis(T)
+
+        kf = KFold(n_splits=self.n_folds, shuffle=True, random_state=42)
+
+        Y_res = np.zeros(n)
+        Phi_res = np.zeros((n, d))
+        T_res = np.zeros(n)   # 진단용 (φ_1 = T 의 잔차와 동일)
+
+        # --- 1~2단계: cross-fitting nuisance 적합 후 잔차화 ---
+        for train_idx, test_idx in kf.split(X_scaled):
+            X_tr, X_te = X_scaled[train_idx], X_scaled[test_idx]
+
+            y_model = self._make()
+            y_model.fit(X_tr, Y[train_idx])
+            Y_res[test_idx] = Y[test_idx] - y_model.predict(X_te)
+
+            for k in range(d):
+                h_model = self._make()
+                h_model.fit(X_tr, Phi[train_idx, k])
+                Phi_res[test_idx, k] = Phi[test_idx, k] - h_model.predict(X_te)
+
+        T_res[:] = Phi_res[:, 0]
+
+        self._Y_residuals = Y_res
+        self._T_residuals = T_res
+        self._Phi_residuals = Phi_res
+
+        # --- 예측용 nuisance: 전체 표본으로 재적합 ---
+        self.g_model = self._make()
+        self.g_model.fit(X_scaled, Y)
+
+        self.h_models = []
+        for k in range(d):
+            h_model = self._make()
+            h_model.fit(X_scaled, Phi[:, k])
+            self.h_models.append(h_model)
+
+        # --- 3단계: 잔차 위에서 최종 모델 학습 ---
+        # 처리 변수는 잔차화된 기저 Phi_res 로만 진입한다.
+        Z = np.column_stack([X_scaled, Phi_res])
+        self.final_model = self._make(scale=2)
+        self.final_model.fit(Z, Y_res)
+
+        self._is_fitted = True
+        return self
+
+    def _residualized_basis_at(self, X_scaled: np.ndarray, t: float) -> np.ndarray:
+        """주어진 t에서의 잔차화 기저 φ_k(t) − ĥ_k(x) — (n, d)"""
+        n = len(X_scaled)
+        phi_t = self._basis(np.full(n, t))
+        h_pred = np.column_stack([hm.predict(X_scaled) for hm in self.h_models])
+        return phi_t - h_pred
+
+    def predict(self, X: np.ndarray, t_values: np.ndarray) -> np.ndarray:
+        X_scaled = self.scaler_X.transform(X)
+        n, m = len(X), len(t_values)
+
+        g = self.g_model.predict(X_scaled)
+        # ĥ_k(x)는 t에 의존하지 않으므로 한 번만 계산한다.
+        h_pred = np.column_stack([hm.predict(X_scaled) for hm in self.h_models])
+
+        predictions = np.zeros((n, m))
+        for j, t in enumerate(t_values):
+            phi_t = self._basis(np.full(n, t))
+            Z = np.column_stack([X_scaled, phi_t - h_pred])
+            predictions[:, j] = g + self.final_model.predict(Z)
+
+        return predictions
+
+    def predict_individual(self, X: np.ndarray, T: np.ndarray) -> np.ndarray:
+        X_scaled = self.scaler_X.transform(X)
+        g = self.g_model.predict(X_scaled)
+        phi = self._basis(T)
+        h_pred = np.column_stack([hm.predict(X_scaled) for hm in self.h_models])
+        Z = np.column_stack([X_scaled, phi - h_pred])
+        return g + self.final_model.predict(Z)
+
+    def get_residual_diagnostics(self) -> Dict:
+        if self._T_residuals is None:
+            return {}
+        return {
+            'T_residual_std': float(np.std(self._T_residuals)),
+            'Y_residual_std': float(np.std(self._Y_residuals)),
+            'T_Y_residual_corr': float(np.corrcoef(
+                self._T_residuals, self._Y_residuals
+            )[0, 1]),
+            'orthogonalized': True,
+            'basis_degree': int(self.basis_degree),
+        }
 
 # =============================================================================
 # Part 3: Bootstrap Confidence Intervals
@@ -468,6 +640,12 @@ def run_stage1(
     if estimator_type == "gps":
         est_class = GPSRegressionEstimator
         est_kwargs = {'n_estimators': 200, 'max_depth': 5}
+    elif estimator_type == "odml":
+        # 직교화를 실제로 적용하는 DML. nuisance는 dml과 동일 조건(XGBoost)으로
+        # 맞춰, 차이가 오직 "잔차화 적용 여부"에서만 오도록 통제한다.
+        est_class = OrthogonalDMLEstimator
+        est_kwargs = {'n_folds': 5, 'n_estimators': 100, 'max_depth': 4,
+                      'basis_degree': 2}
     else:
         est_class = DMLDoseResponseEstimator
         est_kwargs = {'n_folds': 5, 'n_estimators': 100, 'max_depth': 4}

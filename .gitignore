@@ -17,10 +17,12 @@ m5_data/
 # 실행 산출물 (재생성 가능)
 cache/
 results/*
-# 단, 논문 표1·표2의 원본 360런 결과는 재현 검증용으로 포함한다
+# 단, 논문 수치의 원본과 그에 대응하는 직교화 DML 결과는 재현 검증용으로 포함한다
 !results/summary_20260416_200920.csv
+!results/summary_odml_paper_20260813_231553.csv
 
-# 논문 원고 및 작업 지침 (공개 대상 아님)
+# 논문 원고 및 내부 작업 문서 (공개 대상 아님)
 papers/
 CLAUDE.md
 AGENTS.md
+HANDOFF_*.md

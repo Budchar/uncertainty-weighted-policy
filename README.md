@@ -140,8 +140,12 @@ safe_policy/
 ├── run.py                          # 단일 파이프라인 실행 (캐시 지원)
 ├── run_experiment.py               # 체계적 비교 실험 (3축 × 반복)
 ├── run_detailed_analysis.py        # 상품별 심층 분석 (대표 시나리오)
+├── run_odml_diagnostic.py          # 잔차 사용 추정기 진단 (U를 감춘 경우/넣은 경우)
+├── run_odml_comparison.py          # 논문 표1 형식 dml vs odml 비교
+├── run_pareto_comparison.py        # 프론티어 기준 UW vs Uniform 비교
 ├── data_loader.py                  # M5 데이터 다운로드 유틸리티
 ├── requirements.txt
+├── KNOWN_ISSUES.md                 # 논문 서술과 구현의 차이 및 검증
 ├── LICENSE
 │
 ├── src/                            # 핵심 파이프라인
@@ -177,8 +181,13 @@ M5 Walmart 판매 데이터의 현실적 covariate 구조 위에 경제학 기�
 
 관찰 데이터에서 마진율→수익의 인과적 dose-response 관계를 추정합니다.
 
-- GPS Regression (Hirano & Imbens 2004) 또는 DML (Chernozhukov et al. 2018)
+- GPS Regression (Hirano & Imbens 2004) / cross-fitting 기반 회귀 / 잔차를 쓰는 DML
 - Bootstrap으로 개인별 신뢰구간을 산출하여 Stage 2의 입력으로 사용합니다
+
+> 논문 실험에 쓰인 `--estimator dml`은 5-fold cross-fitting으로 nuisance 잔차를
+> 구하지만, 최종 회귀는 그 잔차를 쓰지 않고 원본 `(X, T) → Y`로 학습합니다.
+> 잔차를 최종 추정까지 전달하는 `--estimator odml`과 두 추정기의 360런 비교
+> 결과는 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)에 정리했습니다.
 
 ### Stage 2: Uncertainty Quantification
 
@@ -226,6 +235,13 @@ results/
     ├── items_e0.5_n3000_h0.5_*.csv    # 상품별 상세 (중간 조건)
     └── bands_*.csv                     # u(x) 구간별 분석 테이블
 ```
+
+저장소에는 재현 검증용으로 두 개의 360런 결과가 포함되어 있습니다.
+
+| 파일 | 내용 |
+|---|---|
+| `summary_20260416_200920.csv` | 논문 표1·표2의 원본 (`--estimator dml`) |
+| `summary_odml_paper_20260813_231553.csv` | 잔차를 쓰는 추정기로 재실행한 결과 (`--estimator odml`) |
 
 ### Summary CSV 컬럼
 
